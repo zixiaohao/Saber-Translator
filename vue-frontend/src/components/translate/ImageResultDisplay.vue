@@ -448,7 +448,6 @@ async function handleImportFile(event: Event): Promise<void> {
           accept=".json"
           @change="handleImportFile"
         >
-        </div>
       </div>
     </div>
 
