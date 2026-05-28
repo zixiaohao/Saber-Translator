@@ -41,6 +41,7 @@ on:
 
 env:
   MODELS_RELEASE_TAG: models-storage
+  MODELS_SOURCE_REPO: MashiroSaber03/Saber-Translator
   PYTHON_VERSION: '3.12'
 
 jobs:
@@ -135,8 +136,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Write-Host "Downloading models from release: ${{ env.MODELS_RELEASE_TAG }}"
-          gh release download ${{ env.MODELS_RELEASE_TAG }} --pattern "models.*" --dir .
+          Write-Host "Downloading models from release: ${{ env.MODELS_SOURCE_REPO }}@${{ env.MODELS_RELEASE_TAG }}"
+          gh release download ${{ env.MODELS_RELEASE_TAG }} -R ${{ env.MODELS_SOURCE_REPO }} --pattern "models.*" --dir .
           
           Write-Host "Downloaded files:"
           Get-ChildItem -Filter "models.*" | Format-Table Name, @{N='SizeMB';E={[math]::Round($_.Length/1MB, 2)}}
@@ -312,7 +313,7 @@ jobs:
           $tagName = "${{ needs.prepare.outputs.tag_name }}"
           
           Write-Host "Downloading models for upload to Release..."
-          gh release download ${{ env.MODELS_RELEASE_TAG }} --pattern "models.*" --dir .
+          gh release download ${{ env.MODELS_RELEASE_TAG }} -R ${{ env.MODELS_SOURCE_REPO }} --pattern "models.*" --dir .
           
           Write-Host "Uploading models to Release $tagName..."
           Get-ChildItem "models.*" | ForEach-Object {
