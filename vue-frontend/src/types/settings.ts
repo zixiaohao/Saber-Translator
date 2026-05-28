@@ -55,6 +55,27 @@ export type PluginAgentProvider = HqTranslationProvider
 export type PdfProcessingMethod = 'frontend' | 'backend'
 
 /**
+ * 图片输出格式类型
+ */
+export type ImageOutputFormat = 'png' | 'jpeg' | 'webp'
+
+/**
+ * 导出/下载设置
+ */
+export interface ExportSettings {
+  /** 输出图片格式 */
+  imageFormat: ImageOutputFormat
+  /** JPEG质量 1-100 */
+  jpegQuality: number
+  /** WebP质量 1-100 */
+  webpQuality: number
+  /** PNG压缩级别 0-9 */
+  pngCompressLevel: number
+  /** 翻译完成后自动打包为ZIP保存到服务端 */
+  autoArchiveZip: boolean
+}
+
+/**
  * OpenAI-compatible 请求选项（前端持久化镜像）
  */
 export interface OpenAICompatibleRequestOptions {
@@ -304,6 +325,9 @@ export interface TranslationSettings {
 
   // LAMA修复禁用自动缩放（True=使用原图尺寸，False=自动缩放到1024px）
   lamaDisableResize: boolean
+
+  // 导出/下载设置
+  exportSettings: ExportSettings
 }
 
 /**

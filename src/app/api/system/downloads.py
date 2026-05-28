@@ -5,6 +5,7 @@
 - 准备批量下载（ZIP/PDF/CBZ）
 - 下载处理好的文件
 - 清理过期临时文件
+- 图片格式转换支持 (WebP, JPEG, PNG 压缩)
 """
 
 import os
@@ -16,7 +17,7 @@ import time
 import uuid
 import zipfile
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from flask import request, jsonify, send_file
 from PIL import Image
 
@@ -24,6 +25,121 @@ from . import system_bp
 from src.shared.path_helpers import get_app_root
 
 logger = logging.getLogger("SystemAPI.Downloads")
+
+# 支持的输出格式配置
+SUPPORTED_OUTPUT_FORMATS = {
+    'png': {'ext': '.png', 'mime': 'image/png', 'pil_format': 'PNG'},
+    'jpeg': {'ext': '.jpg', 'mime': 'image/jpeg', 'pil_format': 'JPEG'},
+    'webp': {'ext': '.webp', 'mime': 'image/webp', 'pil_format': 'WEBP'},
+}
+
+DEFAULT_OUTPUT_FORMAT = 'png'
+DEFAULT_OUTPUT_QUALITY = 90
+DEFAULT_JPEG_QUALITY = 85
+DEFAULT_WEBP_QUALITY = 85
+DEFAULT_PNG_COMPRESS = 6
+
+OUTPUT_QUALITY_RANGES = {
+    'png': (0, 9),     # PNG compress level 0-9
+    'jpeg': (1, 100),  # JPEG quality 1-100
+    'webp': (1, 100),  # WebP quality 1-100
+}
+
+FORMAT_LABELS = {
+    'png': 'PNG (无损)',
+    'jpeg': 'JPEG (有损, 体积小)',
+    'webp': 'WebP (有损, 推荐)',
+}
+
+
+def _convert_image(img: Image.Image, output_format: str, quality: int = DEFAULT_OUTPUT_QUALITY) -> Tuple[bytes, str]:
+    """
+    将PIL Image转换为指定格式的字节数据
+
+    Args:
+        img: PIL Image对象
+        output_format: 输出格式 (png/jpeg/webp)
+        quality: 质量参数 (png: 0-9压缩级别, jpeg/webp: 1-100)
+
+    Returns:
+        (bytes_data, file_extension)
+    """
+    fmt_config = SUPPORTED_OUTPUT_FORMATS.get(output_format, SUPPORTED_OUTPUT_FORMATS[DEFAULT_OUTPUT_FORMAT])
+
+    img_buffer = io.BytesIO()
+
+    if output_format == 'png':
+        img.save(img_buffer, format=fmt_config['pil_format'], compress_level=quality)
+    elif output_format == 'jpeg':
+        if img.mode == 'RGBA':
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3] if len(img.getbands()) == 4 else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        img.save(img_buffer, format=fmt_config['pil_format'], quality=quality, optimize=True)
+    elif output_format == 'webp':
+        if img.mode != 'RGB' and img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        img.save(img_buffer, format=fmt_config['pil_format'], quality=quality)
+    else:
+        img.save(img_buffer, format='PNG')
+
+    img_buffer.seek(0)
+    return img_buffer.read(), fmt_config['ext']
+
+
+def _sanitize_output_format(fmt: Optional[str]) -> str:
+    if fmt and fmt.lower() in SUPPORTED_OUTPUT_FORMATS:
+        return fmt.lower()
+    return DEFAULT_OUTPUT_FORMAT
+
+
+def _sanitize_quality(fmt: str, q: Optional[int]) -> int:
+    ranges = OUTPUT_QUALITY_RANGES.get(fmt, (1, 100))
+    min_q, max_q = ranges
+    if q is not None and isinstance(q, (int, float)):
+        return max(min_q, min(int(q), max_q))
+    defaults = {'png': DEFAULT_PNG_COMPRESS, 'jpeg': DEFAULT_JPEG_QUALITY, 'webp': DEFAULT_WEBP_QUALITY}
+    return defaults.get(fmt, DEFAULT_OUTPUT_QUALITY)
+
+
+@system_bp.route('/download_format_info', methods=['GET'])
+def download_format_info_api():
+    """
+    获取支持的输出格式信息
+
+    返回:
+        {
+            'success': True,
+            'formats': { 'png': {...}, 'jpeg': {...}, 'webp': {...} },
+            'defaults': { 'format': 'png', 'quality': { ... } }
+        }
+    """
+    return jsonify({
+        'success': True,
+        'formats': {
+            fmt: {
+                'ext': cfg['ext'],
+                'mime': cfg['mime'],
+                'label': FORMAT_LABELS.get(fmt, cfg['pil_format']),
+                'quality_range': OUTPUT_QUALITY_RANGES.get(fmt, [1, 100]),
+                'quality_default': {
+                    'png': DEFAULT_PNG_COMPRESS,
+                    'jpeg': DEFAULT_JPEG_QUALITY,
+                    'webp': DEFAULT_WEBP_QUALITY,
+                }.get(fmt, DEFAULT_OUTPUT_QUALITY),
+            }
+            for fmt, cfg in SUPPORTED_OUTPUT_FORMATS.items()
+        },
+        'defaults': {
+            'format': DEFAULT_OUTPUT_FORMAT,
+            'quality': DEFAULT_OUTPUT_QUALITY,
+            'png_compress': DEFAULT_PNG_COMPRESS,
+            'jpeg_quality': DEFAULT_JPEG_QUALITY,
+            'webp_quality': DEFAULT_WEBP_QUALITY,
+        }
+    })
 
 
 @system_bp.route('/download_start_session', methods=['POST'])
@@ -67,15 +183,18 @@ def download_start_session_api():
 @system_bp.route('/download_upload_image', methods=['POST'])
 def download_upload_image_api():
     """
-    上传单张图片到下载会话的临时目录
-    
+    上传单张图片到下载会话的临时目录，支持格式转换
+
     请求体:
         {
             'session_id': 'uuid',
             'image_index': int,
-            'image_data': 'base64_data'
+            'image_data': 'base64_data',
+            'file_path': 'optional/path',  # 可选：文件相对路径
+            'output_format': 'webp',     # 可选：输出格式 (png/jpeg/webp)
+            'quality': 85                # 可选：质量参数
         }
-    
+
     返回:
         {
             'success': True,
@@ -86,76 +205,81 @@ def download_upload_image_api():
         data = request.json
         if not data:
             return jsonify({'error': '请求数据为空'}), 400
-            
+
         session_id = data.get('session_id')
         image_index = data.get('image_index', 0)
         image_data = data.get('image_data')
         file_path = data.get('file_path')  # 可选：文件相对路径（用于保留文件夹结构）
-        
+        output_format = _sanitize_output_format(data.get('output_format'))
+        quality = _sanitize_quality(output_format, data.get('quality'))
+
         if not session_id or not image_data:
             return jsonify({'error': '缺少必要参数'}), 400
-            
+
         # 验证session_id，防止路径注入
         if '..' in session_id or '/' in session_id or '\\' in session_id:
             return jsonify({'error': '无效的会话ID'}), 400
-            
+
         base_path = get_app_root()
         temp_dir = os.path.join(base_path, 'data', 'temp', session_id)
-        
+
         if not os.path.exists(temp_dir):
             return jsonify({'error': '会话不存在或已过期'}), 404
-            
+
         # 处理Base64数据
         if ',' in image_data:
             image_data = image_data.split(',', 1)[1]
-            
+
         # 解码Base64数据
         img_bytes = base64.b64decode(image_data)
         img = Image.open(io.BytesIO(img_bytes))
         # 确保是RGB模式，避免调色板模式(P)导致保存后颜色错误
         if img.mode != 'RGB':
             img = img.convert('RGB')
-        
+
+        # 格式转换
+        converted_bytes, ext = _convert_image(img, output_format, quality)
+        ext = ext.lstrip('.')
+
         # 确定保存路径
         if file_path:
             # 使用文件路径保存（保留文件夹结构）
-            # 安全校验：防止路径遍历攻击
             sanitized_path = file_path.replace('\\', '/').strip('/')
             if '..' in sanitized_path or sanitized_path.startswith('/'):
                 return jsonify({'error': '无效的文件路径'}), 400
-            
-            # 将原始扩展名替换为 .png
+
             name_without_ext = os.path.splitext(sanitized_path)[0]
-            sanitized_path = name_without_ext + '.png'
-            
+            sanitized_path = f"{name_without_ext}.{ext}"
+
             # 构建完整路径
             filepath = os.path.join(temp_dir, sanitized_path)
-            
+
             # 处理同名文件：如果已存在则自动添加序号
             if os.path.exists(filepath):
                 base_name = os.path.splitext(sanitized_path)[0]
                 counter = 1
-                while os.path.exists(os.path.join(temp_dir, f"{base_name}_{counter}.png")):
+                while os.path.exists(os.path.join(temp_dir, f"{base_name}_{counter}.{ext}")):
                     counter += 1
-                filepath = os.path.join(temp_dir, f"{base_name}_{counter}.png")
-            
+                filepath = os.path.join(temp_dir, f"{base_name}_{counter}.{ext}")
+
             # 创建子目录（如果需要）
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
         else:
             # 回退到扁平结构（向后兼容）
-            filename = f"image_{image_index:03d}.png"
+            filename = f"image_{image_index:03d}.{ext}"
             filepath = os.path.join(temp_dir, filename)
-        
-        img.save(filepath, format="PNG")
-        
+
+        with open(filepath, 'wb') as f:
+            f.write(converted_bytes)
+
         rel_path = os.path.relpath(filepath, temp_dir)
-        logger.debug(f"会话 {session_id}: 已保存图片 {rel_path}")
-        
+        logger.debug(f"会话 {session_id}: 已保存图片 {rel_path} (格式:{output_format}, q:{quality})")
+
         return jsonify({
             'success': True,
             'saved_index': image_index
         })
-        
+
     except Exception as e:
         logger.error(f"上传图片失败: {str(e)}", exc_info=True)
         return jsonify({'error': f'上传图片失败: {str(e)}'}), 500
@@ -202,10 +326,13 @@ def download_finalize_api():
             return jsonify({'error': '会话不存在或已过期'}), 404
             
         # 获取所有已保存的图片文件（支持文件夹结构，递归遍历）
+        # 支持 .png, .jpg, .jpeg, .webp 等常见图片格式
+        valid_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
         saved_files = []  # 列表元素: (绝对路径, 相对路径)
         for root, dirs, files in os.walk(temp_dir):
             for f in files:
-                if f.lower().endswith('.png'):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in valid_extensions:
                     full_path = os.path.join(root, f)
                     rel_path = os.path.relpath(full_path, temp_dir).replace('\\', '/')
                     saved_files.append((full_path, rel_path))
@@ -280,52 +407,65 @@ def download_all_images_api():
     """
     [已废弃] 旧的一次性上传所有图片的API，保留向后兼容
     建议使用新的分步API: download_start_session -> download_upload_image -> download_finalize
+    支持 output_format 和 quality 参数进行格式转换
     """
     logger.warning("使用了已废弃的 download_all_images API，建议升级到分步上传API")
-    
+
     try:
         data = request.json
         if not data:
             return jsonify({'error': '请求数据为空'}), 400
-            
+
         format_type = data.get('format', 'zip')
         image_data_list = data.get('images', [])
-        
+        output_format = _sanitize_output_format(data.get('output_format'))
+        quality = _sanitize_quality(output_format, data.get('quality'))
+
         if not image_data_list:
             return jsonify({'error': '没有提供图片数据'}), 400
-            
-        logger.info(f"准备处理 {len(image_data_list)} 张图片，格式: {format_type}")
-            
+
+        logger.info(f"准备处理 {len(image_data_list)} 张图片，打包格式: {format_type}, 输出格式: {output_format}")
+
         # 创建唯一的临时目录
         unique_id = str(uuid.uuid4())
         base_path = get_app_root()
         temp_dir = os.path.join(base_path, 'data', 'temp', unique_id)
         os.makedirs(temp_dir, exist_ok=True)
         logger.info(f"创建临时目录: {temp_dir}")
-        
-        # 保存所有图片到临时目录
+
+        # 保存所有图片到临时目录（支持格式转换）
         saved_files = []
+        fmt_config = SUPPORTED_OUTPUT_FORMATS.get(output_format, SUPPORTED_OUTPUT_FORMATS[DEFAULT_OUTPUT_FORMAT])
+        ext = fmt_config['ext'].lstrip('.')
         for i, img_data in enumerate(image_data_list):
             if not img_data:
                 logger.warning(f"跳过索引 {i} 的空图片数据")
                 continue
-                
+
             try:
                 # 处理Base64数据
-                if ',' in img_data:
-                    img_data = img_data.split(',', 1)[1]
-                    
+                raw_data = img_data
+                if ',' in raw_data:
+                    raw_data = raw_data.split(',', 1)[1]
+
                 # 解码Base64数据
-                img_bytes = base64.b64decode(img_data)
+                img_bytes = base64.b64decode(raw_data)
                 img = Image.open(io.BytesIO(img_bytes))
                 # 确保是RGB模式
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
-                
-                # 保存图片到临时目录
-                filename = f"image_{i:03d}.png"
+
+                # 保存图片到临时目录（支持格式转换）
+                filename = f"image_{i:03d}.{ext}"
                 filepath = os.path.join(temp_dir, filename)
-                img.save(filepath, format="PNG")
+
+                if output_format == 'png' and quality == DEFAULT_PNG_COMPRESS:
+                    img.save(filepath, format="PNG")
+                else:
+                    converted_bytes, _ = _convert_image(img, output_format, quality)
+                    with open(filepath, 'wb') as f:
+                        f.write(converted_bytes)
+
                 saved_files.append(filepath)
                 logger.debug(f"已保存图片 {i+1}/{len(image_data_list)}: {filename}")
             except Exception as e:

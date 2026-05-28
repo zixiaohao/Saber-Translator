@@ -48,6 +48,7 @@ def get_server_info():
 from . import plugins
 from . import fonts
 from . import downloads
+from . import archives
 from . import tests
 from . import files
 from . import mobi_handler  # MOBI/AZW 电子书解析

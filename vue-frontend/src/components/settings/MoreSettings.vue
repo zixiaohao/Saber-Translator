@@ -131,6 +131,90 @@
       </div>
     </div>
 
+    <!-- 导出/下载设置 -->
+    <div class="settings-group">
+      <div class="settings-group-title">导出与下载设置</div>
+
+      <!-- 输出图片格式 -->
+      <div class="settings-item">
+        <label for="settingsImageFormat">输出图片格式:</label>
+        <CustomSelect
+          v-model="localSettings.exportSettings.imageFormat"
+          :options="imageFormatOptions"
+        />
+        <div class="input-hint">
+          选择下载/导出时图片的转换格式。PNG为无损格式，JPEG和WebP可通过调整质量减小文件体积。
+        </div>
+      </div>
+
+      <!-- JPEG 质量 -->
+      <div v-if="localSettings.exportSettings.imageFormat === 'jpeg'" class="settings-item">
+        <label for="settingsJpegQuality">JPEG 质量: {{ localSettings.exportSettings.jpegQuality }}%</label>
+        <input
+          type="range"
+          id="settingsJpegQuality"
+          class="slider"
+          min="1"
+          max="100"
+          step="1"
+          v-model.number="localSettings.exportSettings.jpegQuality"
+        />
+        <div class="input-hint">
+          数值越高质量越好，文件越大。推荐 80-90%。
+        </div>
+      </div>
+
+      <!-- WebP 质量 -->
+      <div v-if="localSettings.exportSettings.imageFormat === 'webp'" class="settings-item">
+        <label for="settingsWebpQuality">WebP 质量: {{ localSettings.exportSettings.webpQuality }}%</label>
+        <input
+          type="range"
+          id="settingsWebpQuality"
+          class="slider"
+          min="1"
+          max="100"
+          step="1"
+          v-model.number="localSettings.exportSettings.webpQuality"
+        />
+        <div class="input-hint">
+          数值越高质量越好，文件越大。推荐 80-90%。
+        </div>
+      </div>
+
+      <!-- PNG 压缩级别 -->
+      <div v-if="localSettings.exportSettings.imageFormat === 'png'" class="settings-item">
+        <label for="settingsPngCompress">PNG 压缩级别: {{ localSettings.exportSettings.pngCompressLevel }}</label>
+        <input
+          type="range"
+          id="settingsPngCompress"
+          class="slider"
+          min="0"
+          max="9"
+          step="1"
+          v-model.number="localSettings.exportSettings.pngCompressLevel"
+        />
+        <div class="input-hint">
+          0=无压缩(速度快)，9=最高压缩(速度慢)。推荐 6。
+        </div>
+      </div>
+
+      <!-- 自动打包ZIP -->
+      <div class="settings-item checkbox-item">
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            v-model="localSettings.exportSettings.autoArchiveZip"
+          />
+          <span class="checkbox-text">翻译完成后自动打包为ZIP保存到服务端</span>
+        </label>
+        <div class="input-hint">
+          开启后，翻译完成时自动将所有已翻译图片打包为ZIP文件并保存到服务端，可通过历史归档面板随时下载。
+          <br />
+          <span class="hint-note">ZIP文件保存在服务端 data/archives/ 目录下。</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 缓存清理 -->
     <div class="settings-group">
       <div class="settings-group-title">缓存清理</div>
@@ -185,6 +269,13 @@ const pdfMethodOptions = [
   { label: '后端 PyMuPDF', value: 'backend' }
 ]
 
+/** 图片输出格式选项 */
+const imageFormatOptions = [
+  { label: 'PNG (无损)', value: 'png' },
+  { label: 'JPEG (有损, 体积小)', value: 'jpeg' },
+  { label: 'WebP (有损, 推荐)', value: 'webp' }
+]
+
 // Store
 const settingsStore = useSettingsStore()
 const toast = useToast()
@@ -202,7 +293,14 @@ const localSettings = ref({
   autoSaveInBookshelfMode: settingsStore.settings.autoSaveInBookshelfMode || false,
   removeTextWithOcr: settingsStore.settings.removeTextWithOcr || false,
   enableVerboseLogs: settingsStore.settings.enableVerboseLogs || false,
-  lamaDisableResize: settingsStore.settings.lamaDisableResize || false
+  lamaDisableResize: settingsStore.settings.lamaDisableResize || false,
+  exportSettings: {
+    imageFormat: settingsStore.settings.exportSettings.imageFormat || 'png',
+    jpegQuality: settingsStore.settings.exportSettings.jpegQuality || 85,
+    webpQuality: settingsStore.settings.exportSettings.webpQuality || 85,
+    pngCompressLevel: settingsStore.settings.exportSettings.pngCompressLevel || 6,
+    autoArchiveZip: settingsStore.settings.exportSettings.autoArchiveZip || false,
+  }
 })
 
 // ============================================================
@@ -226,6 +324,27 @@ watch(() => localSettings.value.enableVerboseLogs, (val) => {
 
 watch(() => localSettings.value.lamaDisableResize, (val) => {
   settingsStore.setLamaDisableResize(val)
+})
+
+// 导出设置 watch
+watch(() => localSettings.value.exportSettings.imageFormat, (val) => {
+  settingsStore.setImageOutputFormat(val)
+})
+
+watch(() => localSettings.value.exportSettings.jpegQuality, (val) => {
+  settingsStore.setJpegQuality(val)
+})
+
+watch(() => localSettings.value.exportSettings.webpQuality, (val) => {
+  settingsStore.setWebpQuality(val)
+})
+
+watch(() => localSettings.value.exportSettings.pngCompressLevel, (val) => {
+  settingsStore.setPngCompressLevel(val)
+})
+
+watch(() => localSettings.value.exportSettings.autoArchiveZip, (val) => {
+  settingsStore.setAutoArchiveZip(val)
 })
 
 // 刷新字体列表

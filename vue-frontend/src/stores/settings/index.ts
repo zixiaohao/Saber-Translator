@@ -1446,6 +1446,13 @@ export const useSettingsStore = defineStore('settings', () => {
     setRemoveTextWithOcr: miscModule.setRemoveTextWithOcr,
     setEnableVerboseLogs: miscModule.setEnableVerboseLogs,
     setLamaDisableResize: miscModule.setLamaDisableResize,
+    // 导出/下载设置
+    setImageOutputFormat: miscModule.setImageOutputFormat,
+    setJpegQuality: miscModule.setJpegQuality,
+    setWebpQuality: miscModule.setWebpQuality,
+    setPngCompressLevel: miscModule.setPngCompressLevel,
+    setAutoArchiveZip: miscModule.setAutoArchiveZip,
+    updateExportSettings: miscModule.updateExportSettings,
 
 
     // 兼容旧接口

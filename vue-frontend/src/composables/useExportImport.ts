@@ -13,7 +13,8 @@ import {
   downloadUploadImage,
   downloadFinalize,
   getDownloadFileUrl,
-  cleanTempFiles
+  cleanTempFiles,
+  saveArchiveFromSession
 } from '@/api/system'
 import type { BubbleState } from '@/types/bubble'
 import { executeRender } from '@/composables/translation/core/steps'
@@ -603,6 +604,13 @@ export function useExportImport() {
       return
     }
 
+    const exportSettings = settingsStore.settings.exportSettings
+    const outputFormat = exportSettings.imageFormat || 'png'
+    let quality: number | undefined
+    if (outputFormat === 'jpeg') quality = exportSettings.jpegQuality
+    else if (outputFormat === 'webp') quality = exportSettings.webpQuality
+    else if (outputFormat === 'png') quality = exportSettings.pngCompressLevel
+
     isDownloading.value = true
     downloadProgress.value = 0
     downloadProgressText.value = '准备下载...'
@@ -646,7 +654,7 @@ export function useExportImport() {
       }
       const sessionId = sessionResponse.session_id
 
-      // 步骤2: 逐张上传图片
+      // 步骤2: 逐张上传图片（带格式转换参数）
       const totalImages = imageInfoList.length
       let uploadedCount = 0
       let failedCount = 0
@@ -671,12 +679,14 @@ export function useExportImport() {
           // 确定文件路径（用于保留文件夹结构）
           const filePath = imgData?.relativePath || imgData?.fileName || undefined
 
-          // 传递 image_index 和 file_path（用于文件夹结构导出）
+          // 传递输出格式和quality参数
           const uploadResponse = await downloadUploadImage(
             sessionId,
             imageDataURL,
             i,
-            filePath
+            filePath,
+            outputFormat !== 'png' ? outputFormat : undefined,
+            quality
           )
 
           if (uploadResponse.success) {
@@ -704,6 +714,23 @@ export function useExportImport() {
         throw new Error(finalizeResponse.error || '打包失败')
       }
 
+      // 步骤3.5: 如果启用了自动归档，保存到服务端（复用已打包的ZIP）
+      if (exportSettings.autoArchiveZip && finalizeResponse.file_id) {
+        downloadProgress.value = 90
+        downloadProgressText.value = '保存归档到服务端...'
+        try {
+          const archiveResponse = await saveArchiveFromSession(
+            finalizeResponse.file_id,
+            format
+          )
+          if (archiveResponse.success) {
+            toast.success(`已自动保存归档: ${archiveResponse.archive?.name || ''}`)
+          }
+        } catch (e) {
+          console.error('自动归档失败:', e)
+        }
+      }
+
       // 步骤4: 触发下载
       downloadProgress.value = 95
       downloadProgressText.value = '准备下载...'
@@ -720,6 +747,9 @@ export function useExportImport() {
 
       // 更新下载成功信息
       let successMessage = `已成功处理 ${uploadedCount} 张图片`
+      if (outputFormat !== 'png') {
+        successMessage += ` (格式: ${outputFormat.toUpperCase()})`
+      }
       if (failedCount > 0) {
         successMessage += `（${failedCount} 张失败）`
       }

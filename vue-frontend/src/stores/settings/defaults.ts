@@ -16,7 +16,8 @@ import type {
   BoxExpandSettings,
   PreciseMaskSettings,
   TranslationSettings,
-  ParallelSettings
+  ParallelSettings,
+  ExportSettings
 } from '@/types/settings'
 import { getTextStyleDefaults } from '@/defaults/textStyleDefaults'
 import {
@@ -188,6 +189,15 @@ export const DEFAULT_PARALLEL: ParallelSettings = {
   deepLearningLockSize: 1
 }
 
+/** 默认导出设置 */
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+  imageFormat: 'png',
+  jpegQuality: 85,
+  webpQuality: 85,
+  pngCompressLevel: 6,
+  autoArchiveZip: false
+}
+
 /** 创建默认翻译设置 */
 export function createDefaultSettings(): TranslationSettings {
   return {
@@ -221,6 +231,7 @@ export function createDefaultSettings(): TranslationSettings {
     autoSaveInBookshelfMode: true,
     removeTextWithOcr: false,
     enableVerboseLogs: false,  // 默认关闭详细日志
-    lamaDisableResize: false  // 默认允许LAMA自动缩放（提高速度，减少显存占用）
+    lamaDisableResize: false,  // 默认允许LAMA自动缩放（提高速度，减少显存占用）
+    exportSettings: cloneJson(DEFAULT_EXPORT_SETTINGS)
   }
 }

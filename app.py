@@ -231,6 +231,7 @@ def create_required_directories():
     os.makedirs(os.path.join(data_root, 'debug'), exist_ok=True)
     os.makedirs(os.path.join(data_root, 'sessions'), exist_ok=True)
     os.makedirs(os.path.join(data_root, 'temp'), exist_ok=True)  # 临时目录
+    os.makedirs(os.path.join(data_root, 'archives'), exist_ok=True)  # 打包归档目录
 
     # 确保logs目录存在
     os.makedirs(get_logs_root(), exist_ok=True)

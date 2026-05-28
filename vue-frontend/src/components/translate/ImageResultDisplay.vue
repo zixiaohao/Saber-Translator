@@ -20,6 +20,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useExportImport, type DownloadFormat } from '@/composables/useExportImport'
 import CustomSelect from '@/components/common/CustomSelect.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import ArchivePanel from './ArchivePanel.vue'
 
 /** 下载格式选项 */
 const downloadFormatOptions = [
@@ -87,6 +88,9 @@ const downloadProgress = computed(() => exportImport.downloadProgress.value)
 
 /** 是否有图片 */
 const hasImages = computed(() => imageStore.hasImages)
+
+/** 是否显示归档面板 */
+const showArchivePanel = ref(false)
 
 // ============================================================
 // 计算属性
@@ -444,8 +448,24 @@ async function handleImportFile(event: Event): Promise<void> {
           accept=".json"
           @change="handleImportFile"
         >
+        </div>
       </div>
     </div>
+
+    <!-- 历史归档面板 -->
+    <div class="archive-toggle-section">
+      <button
+        class="control-btn"
+        :class="{ active: showArchivePanel }"
+        @click="showArchivePanel = !showArchivePanel"
+      >
+        {{ showArchivePanel ? '隐藏历史归档' : '历史归档文件' }}
+      </button>
+    </div>
+    <ArchivePanel
+      :is-open="showArchivePanel"
+      @close="showArchivePanel = false"
+    />
   </section>
   
   <!-- 空状态提示 - 仅在没有图片时显示简洁提示 -->
@@ -723,6 +743,12 @@ async function handleImportFile(event: Event): Promise<void> {
   outline: none;
   border-color: var(--color-primary, #4a90d9);
   box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+}
+
+.archive-toggle-section {
+  width: 100%;
+  margin-top: 10px;
+  text-align: center;
 }
 
 /* ===================================

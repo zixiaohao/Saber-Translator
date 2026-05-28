@@ -154,19 +154,30 @@ export async function downloadStartSession(
  * @param imageData Base64 图片数据
  * @param imageIndex 图片索引
  * @param filePath 文件相对路径（可选，用于保留文件夹结构，如 "漫画/第1章/01.jpg"）
+ * @param outputFormat 输出图片格式（可选: png/jpeg/webp）
+ * @param quality 输出质量（可选）
  */
 export async function downloadUploadImage(
   sessionId: string,
   imageData: string,
   imageIndex: number,
-  filePath?: string
+  filePath?: string,
+  outputFormat?: string,
+  quality?: number
 ): Promise<ApiResponse> {
-  return apiClient.post<ApiResponse>('/api/download_upload_image', {
+  const body: Record<string, unknown> = {
     session_id: sessionId,
     image_data: imageData,
     image_index: imageIndex,
     file_path: filePath,
-  })
+  }
+  if (outputFormat) {
+    body.output_format = outputFormat
+  }
+  if (quality !== undefined && quality !== null) {
+    body.quality = quality
+  }
+  return apiClient.post<ApiResponse>('/api/download_upload_image', body)
 }
 
 /**
@@ -258,4 +269,130 @@ export async function cleanupGpu(): Promise<GpuCleanupResponse> {
  */
 export async function getGpuStatus(): Promise<GpuStatusResponse> {
   return apiClient.get<GpuStatusResponse>('/api/gpu-status')
+}
+
+// ==================== 归档管理 API ====================
+
+/**
+ * 归档文件项
+ */
+export interface ArchiveItem {
+  id: string
+  name: string
+  size: number
+  size_display: string
+  page_count: number
+  format: string
+  created_at: string
+  created_at_display: string
+}
+
+/**
+ * 归档列表响应
+ */
+export interface ArchivesListResponse {
+  success: boolean
+  archives: ArchiveItem[]
+  error?: string
+}
+
+/**
+ * 归档保存响应
+ */
+export interface ArchiveSaveResponse {
+  success: boolean
+  message?: string
+  archive?: ArchiveItem
+  error?: string
+}
+
+/**
+ * 获取历史归档列表
+ */
+export async function getArchivesList(): Promise<ArchivesListResponse> {
+  return apiClient.get<ArchivesListResponse>('/api/archives/list')
+}
+
+/**
+ * 获取归档文件下载 URL
+ * @param archiveId 归档ID
+ */
+export function getArchiveDownloadUrl(archiveId: string): string {
+  return `/api/archives/download/${archiveId}`
+}
+
+/**
+ * 删除归档文件
+ * @param archiveId 归档ID
+ */
+export async function deleteArchive(archiveId: string): Promise<ApiResponse> {
+  return apiClient.post<ApiResponse>('/api/archives/delete', { archive_id: archiveId })
+}
+
+/**
+ * 保存翻译结果为服务端归档
+ * @param images Base64图片数据数组
+ * @param name 可选：自定义名称
+ */
+export async function saveArchive(
+  images: string[],
+  name?: string
+): Promise<ArchiveSaveResponse> {
+  return apiClient.post<ArchiveSaveResponse>('/api/archives/save', {
+    images,
+    name: name || '',
+  })
+}
+
+/**
+ * 从下载会话保存归档（复用已格式转换的包）
+ * @param sessionId 下载会话ID
+ * @param format 打包格式
+ * @param name 可选：自定义名称
+ */
+export async function saveArchiveFromSession(
+  sessionId: string,
+  format: 'zip' | 'pdf' | 'cbz' = 'zip',
+  name?: string
+): Promise<ArchiveSaveResponse> {
+  return apiClient.post<ArchiveSaveResponse>('/api/archives/save-from-session', {
+    session_id: sessionId,
+    format,
+    name: name || '',
+  })
+}
+
+// ==================== 下载格式信息 API ====================
+
+/**
+ * 格式信息
+ */
+export interface FormatInfo {
+  ext: string
+  mime: string
+  label: string
+  quality_range: [number, number]
+  quality_default: number
+}
+
+/**
+ * 下载格式信息响应
+ */
+export interface DownloadFormatInfoResponse {
+  success: boolean
+  formats: Record<string, FormatInfo>
+  defaults: {
+    format: string
+    quality: number
+    png_compress: number
+    jpeg_quality: number
+    webp_quality: number
+  }
+}
+
+/**
+ * 获取支持的输出格式信息
+ */
+export async function getDownloadFormatInfo(): Promise<DownloadFormatInfoResponse> {
+  return apiClient.get<DownloadFormatInfoResponse>('/api/download_format_info')
 }
