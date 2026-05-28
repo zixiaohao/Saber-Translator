@@ -111,6 +111,8 @@ hiddenimports += [
     'src.app.api.system.downloads', 'src.app.api.system.files', 
     'src.app.api.system.fonts', 'src.app.api.system.plugins',
     'src.app.api.system.mobi_handler', 'src.app.api.system.pdf_handler',
+    'src.app.api.system.archives',    # 历史归档管理 API
+    'src.app.api.system.gpu',         # GPU 资源管理
     
     # app.api.translation (完整)
     'src.app.api.translation', 'src.app.api.translation.routes',
